@@ -1,0 +1,98 @@
+---
+- name: Provision Flask VM
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update apt packages
+      apt:
+        update_cache: yes
+
+    - name: Install necessary packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - python3-flask
+        - nginx
+        - gunicorn
+        - python3-venv
+
+    - name: Clone Flask app from GitHub
+      git:
+        repo: https://github.com/mustafasayilgan/flaskapp.git
+        dest: /home/vagrant/flask_app
+        force: yes
+      become_user: vagrant
+
+    - name: Create virtual environment
+      ansible.builtin.command: python3 -m venv venv
+      args:
+        chdir: /home/vagrant/flask_app
+
+    - name: Install project requirements in venv
+      pip:
+        requirements: '/home/vagrant/flask_app/requirements.txt'
+        virtualenv: '/home/vagrant/flask_app/venv'
+        virtualenv_python: python3
+
+    # - name: Run Flask application
+    #   ansible.builtin.shell: sudo nohup python3 flask_app.py &
+    #   args:
+    #     chdir: /home/vagrant/flask_app
+
+    # - name: Run Gunicorn Bind Command
+    #   ansible.builtin.shell: gunicorn --bind 0.0.0.0:5000 wsgi:app
+    #   args:
+    #     chdir: /home/vagrant/flask_app
+
+    # - name: Deactivate virtual environment
+    #   ansible.builtin.shell: deactivate
+    #   args:
+    #     chdir: /home/vagrant/flask_app
+
+    - name: Configure Gunicorn service
+      template:
+        src: gunicorn.service.j2
+        dest: /etc/systemd/system/flask.service
+      notify: Restart Gunicorn
+
+    - name: Configure Nginx
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/conf.d/flask.conf
+      notify: Restart Nginx      
+
+    - name: Change ownership of flask_app directory
+      ansible.builtin.command: sudo chown -R root:www-data /home/vagrant/flask_app
+
+    - name: Change permissions of flask_app directory
+      ansible.builtin.command: sudo chmod -R 775 /home/vagrant/flask_app
+
+    - name: Reload systemd daemon
+      ansible.builtin.command: sudo systemctl daemon-reload
+
+    - name: Start Flask service
+      ansible.builtin.command: sudo systemctl start flask
+
+    - name: Enable Flask service
+      ansible.builtin.command: sudo systemctl enable flask
+
+    - name: Check status of Flask service
+      ansible.builtin.command: sudo systemctl status flask
+
+    - name: Enable nginx service
+      ansible.builtin.command: sudo systemctl enable nginx
+
+    - name: Restart nginx service
+      ansible.builtin.command: sudo systemctl restart nginx
+      
+  handlers:
+    - name: Restart Gunicorn
+      systemd:
+        name: flask
+        state: restarted
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
